@@ -1759,7 +1759,6 @@ name = "tournament"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
- "treasury",
 ]
 
 [[package]]

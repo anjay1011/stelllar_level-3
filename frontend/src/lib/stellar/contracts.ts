@@ -80,30 +80,40 @@ function mapOnChainTournament(
   t: OnChainTournament,
   players: Player[]
 ): Tournament {
-  const statusNum =
-    typeof t.status === "number"
-      ? t.status
-      : typeof t.status === "object" && t.status !== null
-        ? STATUS_TO_NUM[t.status.tag as TournamentStatus] ?? 0
-        : 0;
+  // Handle different data shapes from the SDK (object with named fields, array, or partial)
+  const raw = t as unknown as Record<string, unknown>;
+  const tId = Number(raw.id ?? 0);
+  const tName = String(raw.name ?? `Tournament #${tId}`);
+  const tOrganizer = String(raw.organizer ?? "");
+  const tEntryFee = Number(raw.entry_fee ?? 0);
+  const tPrizePool = Number(raw.prize_pool ?? 0);
+  const tMaxPlayers = Number(raw.max_players ?? 8);
+  const tWinner = raw.winner ? String(raw.winner) : undefined;
+  const tStatus = raw.status;
 
-  const winnerAddr = t.winner ?? undefined;
+  let statusNum = 0;
+  if (typeof tStatus === "number") {
+    statusNum = tStatus;
+  } else if (typeof tStatus === "object" && tStatus !== null) {
+    const tag = (tStatus as Record<string, unknown>).tag;
+    statusNum = typeof tag === "string" ? (STATUS_TO_NUM[tag as TournamentStatus] ?? 0) : 0;
+  }
 
   return {
-    id: `t-${t.id}`,
-    name: t.name,
-    description: `On-chain tournament #${t.id} — ${t.name}`,
-    organizer: `Organizer ${t.organizer.slice(0, 8)}…`,
-    organizerAddress: t.organizer,
-    entryFee: Number(t.entry_fee),
-    prizePool: Number(t.prize_pool),
-    maxPlayers: Number(t.max_players),
+    id: `t-${tId}`,
+    name: tName,
+    description: `On-chain tournament #${tId} — ${tName}`,
+    organizer: tOrganizer ? `Organizer ${tOrganizer.slice(0, 8)}…` : "Unknown Organizer",
+    organizerAddress: tOrganizer,
+    entryFee: tEntryFee,
+    prizePool: tPrizePool,
+    maxPlayers: tMaxPlayers || 8,
     registeredPlayers: players,
     status: statusNumToEnum(statusNum),
-    winner: winnerAddr
+    winner: tWinner
       ? {
-          address: winnerAddr,
-          name: `Player ${winnerAddr.slice(0, 8)}…`,
+          address: tWinner,
+          name: `Player ${tWinner.slice(0, 8)}…`,
           avatar: "♚",
         }
       : undefined,
@@ -127,23 +137,27 @@ function parseTournamentId(id: string): number {
  * Fetches registered player addresses from the tournament contract.
  * Falls back gracefully for missing/unreadable tournaments.
  */
-export async function getAllTournaments(): Promise<Tournament[]> {
+export async function getAllTournaments(publicKey?: string): Promise<Tournament[]> {
   // Step 1: Get total tournament count
   const countResult = await readContractCall<number>(
     (client) =>
-      (client).get_tournament_count({})
+      (client).get_tournament_count({}),
+    publicKey
   );
 
-  if (!countResult.ok) return [];
+  if (!countResult.ok) {
+    console.warn("get_tournament_count failed:", countResult.error);
+    return [];
+  }
 
-  const count = countResult.value;
+  const count = Number(countResult.value);
   if (count <= 0) return [];
 
   // Step 2: Fetch each tournament + its players in parallel
   const fetches: Promise<Tournament | null>[] = [];
 
   for (let i = 1; i <= count; i++) {
-    fetches.push(fetchSingleTournament(i));
+    fetches.push(fetchSingleTournament(i, publicKey));
   }
 
   const results = await Promise.allSettled(fetches);
@@ -161,45 +175,61 @@ export async function getAllTournaments(): Promise<Tournament[]> {
  * Returns undefined if not found or on error.
  */
 export async function getTournamentById(
-  id: string
+  id: string,
+  publicKey?: string
 ): Promise<Tournament | undefined> {
-  const numId = parseTournamentId(id);
-  if (numId < 0) return undefined;
+  try {
+    const numId = parseTournamentId(id);
+    if (numId < 0) return undefined;
 
-  const result = await fetchSingleTournament(numId);
-  return result ?? undefined;
+    const result = await fetchSingleTournament(numId, publicKey);
+    return result ?? undefined;
+  } catch (err) {
+    console.warn("getTournamentById error:", err);
+    return undefined;
+  }
 }
 
 /** Internal: fetch one tournament + its players from chain. */
-async function fetchSingleTournament(id: number): Promise<Tournament | null> {
-  // Fetch tournament data
-  const tResult = await readContractCall<OnChainTournament>(
-    (client) =>
-      (client).get_tournament({ tournament_id: id })
-  );
+async function fetchSingleTournament(id: number, publicKey?: string): Promise<Tournament | null> {
+  try {
+    // Fetch tournament data
+    const tResult = await readContractCall<OnChainTournament>(
+      (client) =>
+        (client).get_tournament({ tournament_id: id }),
+      publicKey
+    );
 
-  if (!tResult.ok) return null;
+    if (!tResult.ok) {
+      console.warn(`get_tournament(${id}) failed:`, tResult.error);
+      return null;
+    }
 
-  const onChain = tResult.value;
+    const onChain = tResult.value;
 
-  // Fetch registered player addresses
-  const playersResult = await readContractCall<string[]>(
-    (client) =>
-      (client).get_players({ tournament_id: id })
-  );
+    // Fetch registered player addresses
+    const playersResult = await readContractCall<string[]>(
+      (client) =>
+        (client).get_players({ tournament_id: id }),
+      publicKey
+    );
 
-  const addresses: string[] = playersResult.ok
-    ? playersResult.value
-    : [];
+    const addresses: string[] = playersResult.ok
+      ? (Array.isArray(playersResult.value) ? playersResult.value : [])
+      : [];
 
-  // Map addresses to Player objects (name/avatar are off-chain, use placeholders)
-  const players: Player[] = addresses.map((addr) => ({
-    address: addr,
-    name: `${addr.slice(0, 6)}…${addr.slice(-3)}`,
-    avatar: "♟",
-  }));
+    // Map addresses to Player objects (name/avatar are off-chain, use placeholders)
+    const players: Player[] = addresses.map((addr) => ({
+      address: String(addr),
+      name: `${String(addr).slice(0, 6)}…${String(addr).slice(-3)}`,
+      avatar: "♟",
+    }));
 
-  return mapOnChainTournament(onChain, players);
+    return mapOnChainTournament(onChain, players);
+  } catch (err) {
+    console.warn(`fetchSingleTournament(${id}) error:`, err);
+    return null;
+  }
 }
 
 // ─── Write functions ────────────────────────────────────────────────────────
@@ -309,7 +339,7 @@ export async function updateTournamentStatusContract(
       // an on-chain address by fetching the tournament.
       if (!winnerName) throw new Error("Winner address is required");
 
-      const t = await getTournamentById(tournamentId);
+      const t = await getTournamentById(tournamentId, organizerAddress);
       if (!t) throw new Error("Tournament not found");
 
       const winnerPlayer = t.registeredPlayers.find(

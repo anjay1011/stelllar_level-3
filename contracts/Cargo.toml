@@ -7,3 +7,12 @@ members = [
 
 [workspace.dependencies]
 soroban-sdk = "26.1.0"
+
+[profile.release]
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+opt-level = "z"

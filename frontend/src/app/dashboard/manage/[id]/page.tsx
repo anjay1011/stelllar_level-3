@@ -35,7 +35,7 @@ export default function ManageTournamentPage({
     setIsLoading(true);
     setError(null);
     try {
-      const data = await getTournamentById(id);
+      const data = await getTournamentById(id, publicKey ?? undefined);
       if (data) {
         setTournament(data);
         setStatus(data.status);
@@ -51,7 +51,7 @@ export default function ManageTournamentPage({
     let cancelled = false;
     async function load() {
       try {
-        const data = await getTournamentById(id);
+        const data = await getTournamentById(id, publicKey ?? undefined);
         if (!cancelled && data) {
           setTournament(data);
           setStatus(data.status);
@@ -64,7 +64,7 @@ export default function ManageTournamentPage({
     }
     load();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, publicKey]);
 
   if (isLoading) {
     return (

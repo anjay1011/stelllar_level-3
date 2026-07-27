@@ -1,6 +1,6 @@
 import {
   isConnected,
-  getAddress,
+  requestAccess,
   getNetwork,
   signTransaction,
 } from "@stellar/freighter-api";
@@ -14,42 +14,84 @@ export interface WalletState {
 }
 
 /**
- * Check if Freighter browser extension is installed
+ * Check if Freighter browser extension is installed using the official API.
+ * Uses isConnected() which communicates with the extension directly,
+ * rather than relying on window.freighter injection.
  */
 export async function checkFreighterInstalled(): Promise<boolean> {
   try {
-    const res = await isConnected();
-    return res && res.isConnected ? true : false;
-  } catch (error) {
-    console.error("Error checking Freighter installation:", error);
+    const result = await isConnected();
+    return result.isConnected;
+  } catch {
     return false;
   }
 }
 
 /**
- * Connect user wallet and retrieve active Stellar public key
+ * Connect user wallet and retrieve active Stellar public key.
+ *
+ * Uses requestAccess() which combines authorization and address retrieval
+ * in a single call. If the site is already authorized, returns the address
+ * immediately without a popup. If not authorized, prompts the user to
+ * approve the site in Freighter.
  */
 export async function connectFreighter(): Promise<{
   publicKey: string;
   network: string;
 }> {
-  const installed = await checkFreighterInstalled();
-  if (!installed) {
+  let connected;
+  try {
+    connected = await isConnected();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
-      "Freighter wallet is not installed. Please install the Freighter extension."
+      `Could not communicate with Freighter: ${msg}. Make sure the Freighter extension is installed and enabled.`
     );
   }
 
-  const addrRes = await getAddress();
-  if (!addrRes || !addrRes.address || addrRes.error) {
-    throw new Error("Failed to retrieve public address from Freighter.");
+  if (!connected.isConnected) {
+    throw new Error(
+      "Freighter is not installed. Please install the Freighter browser extension from https://freighter.app to continue."
+    );
   }
 
-  const netRes = await getNetwork();
+  let accessResult;
+  try {
+    accessResult = await requestAccess();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Freighter communication failed: ${msg}. Make sure Freighter is unlocked and try again.`
+    );
+  }
+
+  if (accessResult.error) {
+    const errDetail =
+      typeof accessResult.error === "object"
+        ? JSON.stringify(accessResult.error)
+        : String(accessResult.error);
+    throw new Error(
+      `Freighter access denied: ${errDetail}. Please approve this site in Freighter and ensure you have an active account.`
+    );
+  }
+
+  if (!accessResult.address) {
+    throw new Error(
+      "Freighter has no active account. Please create or import an account in Freighter first."
+    );
+  }
+
+  let netRes;
+  try {
+    netRes = await getNetwork();
+  } catch {
+    netRes = null;
+  }
+
   const networkName = netRes && netRes.network ? netRes.network : STELLAR_NETWORK;
 
   return {
-    publicKey: addrRes.address,
+    publicKey: accessResult.address,
     network: networkName,
   };
 }

@@ -28,7 +28,7 @@ export default function DashboardPage() {
     setError(null);
     try {
       const [tList, actList] = await Promise.all([
-        getAllTournaments(),
+        getAllTournaments(publicKey ?? undefined),
         getContractActivityFeed(),
       ]);
       setTournaments(tList);
@@ -45,7 +45,7 @@ export default function DashboardPage() {
     async function load() {
       try {
         const [tList, actList] = await Promise.all([
-          getAllTournaments(),
+          getAllTournaments(publicKey ?? undefined),
           getContractActivityFeed(),
         ]);
         if (!cancelled) {
@@ -60,7 +60,7 @@ export default function DashboardPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [publicKey]);
 
   const joinedTournaments = tournaments.filter((t) =>
     t.registeredPlayers.some((p) => p.address === activeAddress)

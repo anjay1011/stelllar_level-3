@@ -29,34 +29,56 @@ export default function TournamentDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const loadDetail = async () => {
+  const loadDetail = async (retries = 3, delayMs = 2000) => {
     setIsLoading(true);
     setError(null);
-    try {
-      const data = await getTournamentById(id);
-      setTournament(data || null);
-    } catch {
-      setError("Unable to load tournament details.");
-    } finally {
-      setIsLoading(false);
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const data = await getTournamentById(id, publicKey ?? undefined);
+        if (data) {
+          setTournament(data);
+          setError(null);
+          setIsLoading(false);
+          return;
+        }
+      } catch {
+        // will retry
+      }
+      if (attempt < retries - 1) {
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+      }
     }
+    setError("Unable to load tournament details.");
+    setIsLoading(false);
   };
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      try {
-        const data = await getTournamentById(id);
-        if (!cancelled) setTournament(data || null);
-      } catch {
-        if (!cancelled) setError("Unable to load tournament details.");
-      } finally {
-        if (!cancelled) setIsLoading(false);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const data = await getTournamentById(id, publicKey ?? undefined);
+          if (!cancelled && data) {
+            setTournament(data);
+            setError(null);
+            setIsLoading(false);
+            return;
+          }
+        } catch {
+          // will retry
+        }
+        if (!cancelled && attempt < 2) {
+          await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        }
+      }
+      if (!cancelled) {
+        setError("Unable to load tournament details.");
+        setIsLoading(false);
       }
     }
     load();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, publicKey]);
 
   const joined = tournament && publicKey
     ? tournament.registeredPlayers.some((p) => p.address === publicKey)

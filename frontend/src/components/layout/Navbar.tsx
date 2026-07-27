@@ -9,7 +9,7 @@ import { useWallet } from "@/providers/WalletProvider";
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { isConnected, publicKey, connect, disconnect, isLoading } = useWallet();
+  const { isConnected, publicKey, connect, disconnect, isLoading, error } = useWallet();
 
   const truncatedAddress = publicKey
     ? `${publicKey.slice(0, 4)}...${publicKey.slice(-4)}`
@@ -61,13 +61,20 @@ export default function Navbar() {
               {truncatedAddress}
             </button>
           ) : (
-            <button
-              onClick={connect}
-              disabled={isLoading}
-              className="rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 transition-all hover:shadow-amber-500/40 hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-            >
-              {isLoading ? "Connecting..." : "Connect Wallet"}
-            </button>
+            <div className="relative">
+              <button
+                onClick={connect}
+                disabled={isLoading}
+                className="rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 transition-all hover:shadow-amber-500/40 hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+              >
+                {isLoading ? "Connecting..." : "Connect Wallet"}
+              </button>
+              {error && (
+                <div className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-red-500/20 bg-zinc-900 p-3 text-xs text-red-400 shadow-xl z-50">
+                  {error}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -126,16 +133,23 @@ export default function Navbar() {
                 {truncatedAddress} (Disconnect)
               </button>
             ) : (
-              <button
-                onClick={() => {
-                  connect();
-                  setMobileOpen(false);
-                }}
-                disabled={isLoading}
-                className="mt-2 w-full rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25"
-              >
-                {isLoading ? "Connecting..." : "Connect Wallet"}
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    connect();
+                    setMobileOpen(false);
+                  }}
+                  disabled={isLoading}
+                  className="mt-2 w-full rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25"
+                >
+                  {isLoading ? "Connecting..." : "Connect Wallet"}
+                </button>
+                {error && (
+                  <div className="mt-2 rounded-lg border border-red-500/20 bg-red-500/[0.05] p-3 text-xs text-red-400">
+                    {error}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

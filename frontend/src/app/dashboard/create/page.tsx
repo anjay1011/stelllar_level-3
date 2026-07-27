@@ -8,7 +8,7 @@ import { useWallet } from "@/providers/WalletProvider";
 
 export default function CreateTournamentPage() {
   const router = useRouter();
-  const { isConnected, publicKey, connect } = useWallet();
+  const { isConnected, publicKey, connect, error: walletError } = useWallet();
 
   const [formData, setFormData] = useState({
     name: "",
@@ -25,7 +25,11 @@ export default function CreateTournamentPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isConnected || !publicKey) {
-      await connect();
+      try {
+        await connect();
+      } catch {
+        setError("Failed to connect wallet. Please install Freighter extension and set it to Testnet.");
+      }
       return;
     }
 
@@ -110,9 +114,9 @@ export default function CreateTournamentPage() {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          {error && (
+          {(error || walletError) && (
             <div className="rounded-xl border border-red-500/20 bg-red-500/[0.05] p-4 text-sm text-red-400">
-              {error}
+              {error || walletError}
             </div>
           )}
           <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 space-y-5">

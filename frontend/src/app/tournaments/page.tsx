@@ -6,6 +6,7 @@ import EmptyState from "@/components/shared/EmptyState";
 import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
 import ErrorState from "@/components/shared/ErrorState";
 import { getAllTournaments } from "@/lib/stellar/contracts";
+import { useWallet } from "@/providers/WalletProvider";
 import {
   type Tournament,
   type TournamentStatus,
@@ -23,6 +24,7 @@ const filterOptions: { label: string; value: TournamentStatus | "all" }[] = [
 ];
 
 export default function TournamentsPage() {
+  const { publicKey } = useWallet();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export default function TournamentsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await getAllTournaments();
+      const data = await getAllTournaments(publicKey ?? undefined);
       setTournaments(data);
     } catch {
       setError("Unable to load tournaments from chain.");
@@ -48,7 +50,7 @@ export default function TournamentsPage() {
     let cancelled = false;
     async function load() {
       try {
-        const data = await getAllTournaments();
+        const data = await getAllTournaments(publicKey ?? undefined);
         if (!cancelled) setTournaments(data);
       } catch {
         if (!cancelled) setError("Unable to load tournaments from chain.");
@@ -58,7 +60,7 @@ export default function TournamentsPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [publicKey]);
 
   const filtered = tournaments.filter((t) => {
     const matchesFilter =

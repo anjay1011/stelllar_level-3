@@ -46,7 +46,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         isFreighterInstalled: true,
       });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to connect Freighter wallet");
+      const message = err instanceof Error ? err.message : "Failed to connect Freighter wallet";
+      setError(message);
+      console.error("Wallet connection error:", err);
     } finally {
       setIsLoading(false);
     }

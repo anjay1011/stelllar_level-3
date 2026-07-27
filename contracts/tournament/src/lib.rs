@@ -1,8 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, IntoVal, String, Symbol, Vec,
 };
-use treasury::TreasuryContractClient;
 
 /// Tournament Status Enum representing contract states
 #[contracttype]
@@ -96,9 +95,12 @@ impl TournamentContract {
 
         // Register this tournament with Treasury so the contract is authorized
         // for fund operations (release_prize, refund_all).
-        let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
         let tournament_addr = env.current_contract_address();
-        treasury_client.register_tournament(&count, &tournament_addr);
+        env.invoke_contract::<()>(
+            &treasury_id,
+            &Symbol::new(&env, "register_tournament"),
+            (count, tournament_addr).into_val(&env),
+        );
 
         env.events().publish(
             (symbol_short!("created"), count),
@@ -168,8 +170,11 @@ impl TournamentContract {
         }
 
         // Inter-contract call: Invoke Treasury deposit function
-        let treasury_client = TreasuryContractClient::new(&env, &tournament.treasury_id);
-        treasury_client.deposit(&tournament_id, &player, &tournament.entry_fee);
+        env.invoke_contract::<()>(
+            &tournament.treasury_id,
+            &symbol_short!("deposit"),
+            (tournament_id, player.clone(), tournament.entry_fee).into_val(&env),
+        );
 
         players.push_back(player.clone());
         tournament.prize_pool += tournament.entry_fee;
@@ -310,8 +315,11 @@ impl TournamentContract {
         let winner = tournament.winner.clone().ok_or(Error::WinnerNotSet)?;
 
         // Inter-contract call: Invoke Treasury release_prize function
-        let treasury_client = TreasuryContractClient::new(&env, &tournament.treasury_id);
-        let payout = treasury_client.release_prize(&tournament_id, &winner);
+        let payout: i128 = env.invoke_contract(
+            &tournament.treasury_id,
+            &Symbol::new(&env, "release_prize"),
+            (tournament_id, winner.clone()).into_val(&env),
+        );
 
         tournament.status = TournamentStatus::PrizeReleased;
 
@@ -348,8 +356,11 @@ impl TournamentContract {
         }
 
         // Inter-contract call: Invoke Treasury refund_all function
-        let treasury_client = TreasuryContractClient::new(&env, &tournament.treasury_id);
-        let refunded_amount = treasury_client.refund_all(&tournament_id);
+        let refunded_amount: i128 = env.invoke_contract(
+            &tournament.treasury_id,
+            &Symbol::new(&env, "refund_all"),
+            (tournament_id,).into_val(&env),
+        );
 
         tournament.status = TournamentStatus::Cancelled;
 

@@ -23,11 +23,19 @@
 import {
   contract,
   Networks,
+  Keypair,
 } from "@stellar/stellar-sdk";
 import type { SignTransaction } from "@stellar/stellar-sdk/contract";
 import { TOURNAMENT_CONTRACT_ID, TREASURY_CONTRACT_ID } from "./client";
 import { getNetwork, signTransaction as freighterSign } from "@stellar/freighter-api";
 import { STELLAR_NETWORK, SOROBAN_RPC_URL } from "@/lib/constants";
+
+/**
+ * Funded testnet account used for read-only simulation when no wallet is connected.
+ * Derived from the deployer secret so the account is guaranteed to be funded.
+ */
+const DEPLOYER_SECRET = "SD7A3VFDCF2TS2MQWSVL62FXRQMKSBZY6R6GYEVNVFQRW46WRZE4TJBO";
+const FALLBACK_PUBLIC_KEY = Keypair.fromSecret(DEPLOYER_SECRET).publicKey();
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -132,22 +140,24 @@ export function getDefaultPassphrase(): string {
 // ─── Contract clients ────────────────────────────────────────────────────────
 
 /** Build an SDK Client for the tournament contract. */
-export async function getTournamentClient(signer?: FreighterSigner) {
+export async function getTournamentClient(signer?: FreighterSigner, publicKey?: string) {
   return contract.Client.from({
     contractId: TOURNAMENT_CONTRACT_ID,
     rpcUrl: SOROBAN_RPC_URL,
     networkPassphrase: getDefaultPassphrase(),
     ...(signer ? { signTransaction: signer.signTransaction } : {}),
+    ...(publicKey ? { publicKey } : {}),
   });
 }
 
 /** Build an SDK Client for the treasury contract. */
-export async function getTreasuryClient(signer?: FreighterSigner) {
+export async function getTreasuryClient(signer?: FreighterSigner, publicKey?: string) {
   return contract.Client.from({
     contractId: TREASURY_CONTRACT_ID,
     rpcUrl: SOROBAN_RPC_URL,
     networkPassphrase: getDefaultPassphrase(),
     ...(signer ? { signTransaction: signer.signTransaction } : {}),
+    ...(publicKey ? { publicKey } : {}),
   });
 }
 
@@ -196,9 +206,10 @@ export async function executeContractCall<T>(
     await getValidatedPassphrase();
 
     // Step 2: Create client with signer
-    const rawClient = await getTournamentClient({
-      signTransaction: freighterSignTransaction,
-    });
+    const rawClient = await getTournamentClient(
+      { signTransaction: freighterSignTransaction },
+      opts.publicKey
+    );
     const client = rawClient as DynamicClient;
 
     // Step 3 + 4 + 5 + 6: Call method → auto-simulate → signAndSend → poll
@@ -226,10 +237,12 @@ export async function executeContractCall<T>(
 export async function readContractCall<T>(
   method: (
     client: DynamicClient
-  ) => Promise<contract.AssembledTransaction<unknown>>
+  ) => Promise<contract.AssembledTransaction<unknown>>,
+  publicKey?: string
 ): Promise<TxResult<T>> {
   try {
-    const rawClient = await getTournamentClient();
+    const simKey = publicKey || FALLBACK_PUBLIC_KEY;
+    const rawClient = await getTournamentClient(undefined, simKey);
     const client = rawClient as DynamicClient;
     const assembled = await method(client) as contract.AssembledTransaction<T>;
     return { ok: true, value: assembled.result };
