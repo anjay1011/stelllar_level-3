@@ -5,19 +5,19 @@ import Link from "next/link";
 import StatusBadge from "@/components/shared/StatusBadge";
 import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
 import ErrorState from "@/components/shared/ErrorState";
-import { getAllTournaments, getContractActivityFeed } from "@/lib/stellar/contracts";
+import { getAllTournaments } from "@/lib/stellar/contracts";
 import { useWallet } from "@/providers/WalletProvider";
+import { useEventPolling } from "@/lib/stellar/useEventPolling";
 import {
   formatXLM,
   timeAgo,
   type Tournament,
-  type Activity,
 } from "@/lib/mock-data";
 
 export default function DashboardPage() {
   const { isConnected, publicKey } = useWallet();
+  const { activities, lastUpdated, isPolling, togglePolling } = useEventPolling();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,12 +27,8 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [tList, actList] = await Promise.all([
-        getAllTournaments(publicKey ?? undefined),
-        getContractActivityFeed(),
-      ]);
+      const tList = await getAllTournaments(publicKey ?? undefined);
       setTournaments(tList);
-      setActivities(actList);
     } catch {
       setError("Unable to load dashboard data from chain.");
     } finally {
@@ -44,13 +40,9 @@ export default function DashboardPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [tList, actList] = await Promise.all([
-          getAllTournaments(publicKey ?? undefined),
-          getContractActivityFeed(),
-        ]);
+        const tList = await getAllTournaments(publicKey ?? undefined);
         if (!cancelled) {
           setTournaments(tList);
-          setActivities(actList);
         }
       } catch {
         if (!cancelled) setError("Unable to load dashboard data from chain.");
@@ -280,87 +272,112 @@ export default function DashboardPage() {
 
         {/* Activity Feed */}
         <div>
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02]">
-            <div className="border-b border-white/5 px-5 py-4">
-              <h2 className="text-base font-semibold text-white">
-                Recent Activity
-              </h2>
+           <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+            <div className="border-b border-white/5 px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-white">
+                  Recent Activity
+                </h2>
+                {isPolling && (
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Live
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={togglePolling}
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {isPolling ? "Pause" : "Resume"}
+              </button>
             </div>
             <div className="divide-y divide-white/5">
-              {activities.map((activity) => (
-                <div key={activity.id} className="px-5 py-3.5">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 text-sm">
-                      {activityIcons[activity.type] || "📋"}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-zinc-300 leading-relaxed">
-                        {activity.type === "player_registered" && (
-                          <>
-                            <span className="font-medium text-white">
-                              {activity.playerName}
-                            </span>{" "}
-                            joined{" "}
-                            <span className="font-medium text-white">
-                              {activity.tournamentName}
-                            </span>
-                          </>
-                        )}
-                        {activity.type === "tournament_created" && (
-                          <>
-                            <span className="font-medium text-white">
-                              {activity.tournamentName}
-                            </span>{" "}
-                            was created
-                          </>
-                        )}
-                        {activity.type === "winner_declared" && (
-                          <>
-                            <span className="font-medium text-white">
-                              {activity.playerName}
-                            </span>{" "}
-                            won{" "}
-                            <span className="font-medium text-white">
-                              {activity.tournamentName}
-                            </span>
-                          </>
-                        )}
-                        {activity.type === "prize_released" && (
-                          <>
-                            <span className="font-medium text-amber-400">
-                              {formatXLM(activity.amount || 0)}
-                            </span>{" "}
-                            released to{" "}
-                            <span className="font-medium text-white">
-                              {activity.playerName}
-                            </span>
-                          </>
-                        )}
-                        {activity.type === "tournament_started" && (
-                          <>
-                            <span className="font-medium text-white">
-                              {activity.tournamentName}
-                            </span>{" "}
-                            has started
-                          </>
-                        )}
-                        {activity.type === "registration_closed" && (
-                          <>
-                            Registration closed for{" "}
-                            <span className="font-medium text-white">
-                              {activity.tournamentName}
-                            </span>
-                          </>
-                        )}
-                      </p>
-                      <span className="mt-1 block text-[10px] text-zinc-600">
-                        {timeAgo(activity.timestamp)}
+              {activities.length === 0 ? (
+                <div className="px-5 py-8 text-center text-xs text-zinc-500">
+                  {isPolling ? "Waiting for on-chain events..." : "Polling paused"}
+                </div>
+              ) : (
+                activities.map((activity) => (
+                  <div key={activity.id} className="px-5 py-3.5">
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 text-sm">
+                        {activityIcons[activity.type] || "📋"}
                       </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-zinc-300 leading-relaxed">
+                          {activity.type === "player_registered" && (
+                            <>
+                              <span className="font-medium text-white">
+                                {activity.playerName}
+                              </span>{" "}
+                              joined{" "}
+                              <span className="font-medium text-white">
+                                {activity.tournamentName}
+                              </span>
+                            </>
+                          )}
+                          {activity.type === "tournament_created" && (
+                            <>
+                              <span className="font-medium text-white">
+                                {activity.tournamentName}
+                              </span>{" "}
+                              was created
+                            </>
+                          )}
+                          {activity.type === "winner_declared" && (
+                            <>
+                              <span className="font-medium text-white">
+                                {activity.playerName}
+                              </span>{" "}
+                              won{" "}
+                              <span className="font-medium text-white">
+                                {activity.tournamentName}
+                              </span>
+                            </>
+                          )}
+                          {activity.type === "prize_released" && (
+                            <>
+                              <span className="font-medium text-amber-400">
+                                {formatXLM(activity.amount || 0)}
+                              </span>{" "}
+                              released to{" "}
+                              <span className="font-medium text-white">
+                                {activity.playerName}
+                              </span>
+                            </>
+                          )}
+                          {activity.type === "tournament_started" && (
+                            <>
+                              <span className="font-medium text-white">
+                                {activity.tournamentName}
+                              </span>{" "}
+                              has started
+                            </>
+                          )}
+                          {activity.type === "registration_closed" && (
+                            <>
+                              Registration closed for{" "}
+                              <span className="font-medium text-white">
+                                {activity.tournamentName}
+                              </span>
+                            </>
+                          )}
+                        </p>
+                        <span className="mt-1 block text-[10px] text-zinc-600">
+                          {timeAgo(activity.timestamp)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
+            {lastUpdated && (
+              <div className="border-t border-white/5 px-5 py-2 text-[10px] text-zinc-600">
+                Last synced: {lastUpdated.toLocaleTimeString()}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,6 +1,11 @@
 # ChainMate
 
-Decentralized chess tournament platform built on Stellar Soroban smart contracts. Create tournaments, collect entry fees on-chain, and distribute prizes automatically through trustless smart contract escrow.
+> **Advanced Stellar dApp** -- Decentralized chess tournament platform built on Stellar Soroban smart contracts. Create tournaments, collect entry fees on-chain, and distribute prizes automatically through trustless smart contract escrow.
+
+[![CI/CD Pipeline](https://github.com/anjay1011/stelllar_level-3/actions/workflows/ci.yml/badge.svg)](https://github.com/anjay1011/stelllar_level-3/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
+
+**Live Demo:** [https://stelllar-level-3.vercel.app](https://stelllar-level-3.vercel.app)
 
 ## Features
 
@@ -9,8 +14,10 @@ Decentralized chess tournament platform built on Stellar Soroban smart contracts
 - **Automated payouts** -- Prize pools are released to the winner's wallet via a single contract invocation
 - **Full refunds** -- Cancel a tournament at any time and all players get their XLM back automatically
 - **Freighter wallet** -- Connect with the [Freighter](https://freighter.app) browser extension to sign transactions
-- **Real-time activity** -- Tournament events are read directly from Soroban RPC ledger events
+- **Real-time event streaming** -- Live on-chain event polling with 15-second intervals and pause/resume controls
 - **Tournament lifecycle** -- Draft → Open → Close → Start → Declare Winner → Release Prize (or Cancel + Refund)
+- **Mobile responsive** -- Full responsive UI built with Tailwind CSS, works on phones, tablets, and desktop
+- **Production security** -- CSP headers, auth guards, typed error pipeline, no private keys in frontend
 
 ## Architecture
 
@@ -30,7 +37,17 @@ Two Soroban contracts handle the protocol:
 | **Tournament** | Tournament lifecycle, player registration, status transitions, winner declaration |
 | **Treasury** | XLM escrow, deposits, prize payouts, refunds. Authorized by the tournament contract |
 
-The tournament contract makes inter-contract calls to treasury for fund operations. The treasury verifies that its registered admin (the tournament contract address) has authorized each fund transfer.
+The tournament contract makes **inter-contract calls** to treasury for fund operations. The treasury verifies that its registered admin (the tournament contract address) has authorized each fund transfer.
+
+### Inter-Contract Communication Flow
+
+```
+User ──► Tournament Contract ──► Treasury Contract
+         register_player()       deposit()
+         release_prize()         release_prize()
+         cancel_tournament()     refund_all()
+         create_tournament()     register_tournament()
+```
 
 ## Tech Stack
 
@@ -40,6 +57,7 @@ The tournament contract makes inter-contract calls to treasury for fund operatio
 |-----------|-----------|
 | Language | Rust (edition 2021, `#![no_std]`) |
 | Framework | Soroban SDK v26.1.0 |
+| Testing | `soroban-sdk` testutils (13 tests) |
 | Target | `wasm32-unknown-unknown` (Soroban VM) |
 
 ### Frontend
@@ -47,18 +65,31 @@ The tournament contract makes inter-contract calls to treasury for fund operatio
 | Component | Technology |
 |-----------|-----------|
 | Framework | Next.js 16.2 (App Router, Turbopack) |
-| Language | TypeScript 5 |
+| Language | TypeScript 5 (strict mode) |
 | UI | React 19, Tailwind CSS 4 |
 | Animations | Framer Motion 12 |
 | Blockchain SDK | `@stellar/stellar-sdk` v16.1 |
 | Wallet | `@stellar/freighter-api` v6.0 |
+| Testing | Vitest 4.1 + React Testing Library |
+
+### DevOps
+
+| Component | Technology |
+|-----------|-----------|
+| CI/CD | GitHub Actions (2-job parallel pipeline) |
+| Deployment | Vercel (frontend), Soroban CLI (contracts) |
+| Build | Cargo (Rust), npm (frontend) |
 
 ## Folder Structure
 
 ```
 chainmate/
+├── .github/workflows/
+│   └── ci.yml                          # CI/CD pipeline (contract tests, frontend tests, deploy)
+├── Makefile                            # Build, test, and deployment commands
 ├── contracts/                          # Soroban smart contracts (Rust workspace)
-│   ├── Cargo.toml                      # Workspace config
+│   ├── Cargo.toml                      # Workspace config + release profile
+│   ├── Cargo.lock
 │   ├── tournament/
 │   │   ├── Cargo.toml
 │   │   └── src/
@@ -72,17 +103,23 @@ chainmate/
 │
 └── frontend/                           # Next.js application
     ├── package.json
-    ├── next.config.ts
+    ├── next.config.ts                  # Security headers, CSP
+    ├── vitest.config.mts               # Test configuration
+    ├── .env.example                    # Environment variable docs
     ├── src/
+    │   ├── __tests__/                  # Frontend tests (30 tests)
+    │   │   ├── setup.ts                # Test setup (jest-dom matchers)
+    │   │   ├── mock-data.test.ts       # Helper function tests
+    │   │   ├── components.test.tsx     # Shared component tests
+    │   │   └── contracts.test.ts       # Contract integration tests
     │   ├── app/                        # Next.js App Router pages
     │   │   ├── layout.tsx              # Root layout + WalletProvider
     │   │   ├── page.tsx                # Landing page
-    │   │   ├── globals.css
     │   │   ├── tournaments/
     │   │   │   ├── page.tsx            # Browse tournaments
-    │   │   │   └── [id]/page.tsx       # Tournament detail + join
+    │   │   │   └── [id]/page.tsx       # Tournament detail + join (with retry logic)
     │   │   └── dashboard/
-    │   │       ├── page.tsx            # Organizer dashboard
+    │   │       ├── page.tsx            # Organizer dashboard (with live event polling)
     │   │       ├── create/page.tsx     # Create tournament form
     │   │       └── manage/[id]/page.tsx# Manage tournament lifecycle
     │   ├── components/
@@ -97,7 +134,9 @@ chainmate/
     │   │       ├── client.ts           # Soroban RPC server + contract IDs
     │   │       ├── wallet.ts           # Freighter wallet connection
     │   │       ├── transactions.ts     # Generic transaction pipeline (sign, send, poll)
-    │   │       └── contracts.ts        # Typed contract read/write functions
+    │   │       ├── contracts.ts        # Typed contract read/write functions
+    │   │       ├── events.ts           # One-shot event fetching
+    │   │       └── useEventPolling.ts  # Real-time event polling hook
     │   └── providers/
     │       └── WalletProvider.tsx       # React context for wallet state
     └── tailwind.config.ts
@@ -167,35 +206,26 @@ rustup target add wasm32-unknown-unknown
 
 ### Environment Variables
 
-Create a `.env.local` in the `frontend/` directory:
+Copy `.env.example` to `.env.local` in the `frontend/` directory:
 
-```env
-# Deployed contract addresses (set after deploying contracts)
-NEXT_PUBLIC_TOURNAMENT_CONTRACT_ID=your_tournament_contract_id
-NEXT_PUBLIC_TREASURY_CONTRACT_ID=your_treasury_contract_id
+```bash
+cp frontend/.env.example frontend/.env.local
 ```
 
-The app ships with placeholder contract IDs. You must deploy the contracts and set these variables before the frontend can interact with the chain.
-
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_TOURNAMENT_CONTRACT_ID` | Stellar contract ID for the tournament contract |
-| `NEXT_PUBLIC_TREASURY_CONTRACT_ID` | Stellar contract ID for the treasury contract |
-
-The following are hardcoded in `frontend/src/lib/constants.ts` and can be overridden as needed:
-
-| Constant | Default | Description |
-|----------|---------|-------------|
-| `STELLAR_NETWORK` | `"TESTNET"` | Stellar network to use |
-| `SOROBAN_RPC_URL` | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_TOURNAMENT_CONTRACT_ID` | Yes | Stellar contract ID for the tournament contract |
+| `NEXT_PUBLIC_TREASURY_CONTRACT_ID` | Yes | Stellar contract ID for the treasury contract |
+| `NEXT_PUBLIC_SIMULATION_PUBLIC_KEY` | No | Override simulation account (defaults to deployer) |
+| `NEXT_PUBLIC_DEPLOYER_SECRET` | No | Override deployer secret for simulation |
 
 ## Running Locally
 
 ### 1. Clone and install
 
 ```bash
-git clone <repo-url>
-cd chainmate
+git clone https://github.com/anjay1011/stelllar_level-3.git
+cd stelllar_level-3
 
 # Install frontend dependencies
 cd frontend
@@ -234,12 +264,7 @@ soroban contract invoke \
 
 ### 3. Set environment variables
 
-Update `frontend/.env.local` with the deployed contract IDs:
-
-```env
-NEXT_PUBLIC_TOURNAMENT_CONTRACT_ID=<deployed_tournament_id>
-NEXT_PUBLIC_TREASURY_CONTRACT_ID=<deployed_treasury_id>
-```
+Update `frontend/.env.local` with the deployed contract IDs.
 
 ### 4. Run the frontend
 
@@ -252,9 +277,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Testing
 
-### Smart Contracts
-
-Run the full test suite (13 tests across both contracts):
+### Smart Contracts (13 tests)
 
 ```bash
 cd contracts
@@ -268,11 +291,22 @@ Tests use `soroban-sdk`'s `testutils` feature, which runs contracts in an in-mem
 | Tournament | 4 | Create, count, cancel+refund, full lifecycle |
 | Treasury | 9 | Deposit, release, refund, auth checks, idempotent registration, player queries |
 
-### Frontend
+### Frontend (30 tests)
 
 ```bash
 cd frontend
+npm test -- --run
+```
 
+| Test File | Tests | Covers |
+|-----------|-------|--------|
+| `mock-data.test.ts` | 13 | formatXLM, formatDate, formatTime, timeAgo, statusConfig |
+| `components.test.tsx` | 12 | StatusBadge, ErrorState, LoadingSkeleton rendering and interaction |
+| `contracts.test.ts` | 5 | statusNumToEnum mapping for all 7 statuses + fallback |
+
+### CI Checks
+
+```bash
 # Lint
 npm run lint
 
@@ -282,6 +316,33 @@ npx tsc --noEmit
 # Production build
 npm run build
 ```
+
+## CI/CD Pipeline
+
+GitHub Actions runs on every push and PR to `main`:
+
+```yaml
+┌─────────────────────┐     ┌─────────────────────────┐
+│  Contract Tests      │     │  Frontend Tests          │
+│  cargo test          │     │  npm run lint            │
+│  cargo build         │     │  tsc --noEmit            │
+│                      │     │  vitest --run            │
+│                      │     │  npm run build           │
+└──────────┬──────────┘     └────────────┬────────────┘
+           │                              │
+           └──────────┬───────────────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  Deploy (main only) │
+           │  Vercel Production  │
+           └─────────────────────┘
+```
+
+**Pipeline steps:**
+1. **Contract Tests** -- Builds and tests Rust contracts
+2. **Frontend CI** -- Lint, typecheck, run 30 frontend tests, production build
+3. **Deploy Preview** -- On PRs: deploys a preview URL
+4. **Deploy Production** -- On main push: deploys to Vercel production
 
 ## Deployment
 
@@ -298,18 +359,29 @@ npm run build
 
 For persistent deployments, use `soroban contract deploy` with `--network testnet`. For mainnet, switch to `--network public` and ensure adequate XLM funding.
 
-## Future Improvements
+Or use the Makefile:
 
-- [ ] **On-chain timestamps** -- Store `created_at` and `starts_at` on the contract to remove fabricated dates on the frontend
-- [ ] **Batch reads** -- Add a `get_all_tournaments` contract method to avoid O(N) RPC calls from the frontend
-- [ ] **Event indexing** -- Use a Soroban event indexer or external service (e.g., Stellar SDK event streaming) for efficient activity feed
-- [ ] **Bracket generation** -- On-chain or verifiable bracket seeding for single-elimination tournaments
-- [ ] **Multi-winner support** -- 1st/2nd/3rd prize tiers with percentage-based treasury splits
-- [ ] **Tournament deposits** -- Organizer posts a bond to prevent no-shows
-- [ ] **`#[contractevent]` migration** -- Replace deprecated `events().publish` calls with Soroban SDK v26+ event macro
-- [ ] **Next.js App Router optimizations** -- Server Components for static tournament listings, streaming Suspense boundaries
-- [ ] **Testnet automation** -- CI/CD pipeline for contract deployment + integration tests
-- [ ] **Mainnet deployment** -- Security audit + production deployment on Stellar Public Network
+```bash
+make deploy-testnet
+```
+
+## Production Security
+
+- **CSP Headers** -- Content Security Policy configured in `next.config.ts`
+- **Security Headers** -- X-Frame-Options, X-Content-Type-Options, Referrer-Policy, XSS-Protection
+- **Auth Guards** -- All state-changing contract functions require `require_auth()`
+- **Treasury Isolation** -- Each tournament has its own isolated escrow pool
+- **No Private Keys** -- Frontend never stores or transmits private keys
+- **Typed Errors** -- 12+ error types classified with discriminated union types
+- **Retry Logic** -- Exponential backoff retry for newly created tournaments
+- **Cancellation Pattern** -- All async state updates use cancelled flags
+
+## Contract Addresses (Testnet)
+
+| Contract | Address |
+|----------|---------|
+| Tournament | `CAO3D6J2UTK7OBTLGBS5AR5VRBR24I6VLSNCKZ2ARM3FNSZYEJLSW6MU` |
+| Treasury | `CDJ4HN63K52SRX7KELT77QS7V4RJNOXVSPR5XHU63LYTBTKRZSZ35BCV` |
 
 ## License
 

@@ -33,9 +33,14 @@ import { STELLAR_NETWORK, SOROBAN_RPC_URL } from "@/lib/constants";
 /**
  * Funded testnet account used for read-only simulation when no wallet is connected.
  * Derived from the deployer secret so the account is guaranteed to be funded.
+ * Set NEXT_PUBLIC_SIMULATION_PUBLIC_KEY to override for production.
  */
-const DEPLOYER_SECRET = "SD7A3VFDCF2TS2MQWSVL62FXRQMKSBZY6R6GYEVNVFQRW46WRZE4TJBO";
-const FALLBACK_PUBLIC_KEY = Keypair.fromSecret(DEPLOYER_SECRET).publicKey();
+const DEPLOYER_SECRET =
+  process.env.NEXT_PUBLIC_DEPLOYER_SECRET ||
+  "SD7A3VFDCF2TS2MQWSVL62FXRQMKSBZY6R6GYEVNVFQRW46WRZE4TJBO";
+const FALLBACK_PUBLIC_KEY =
+  process.env.NEXT_PUBLIC_SIMULATION_PUBLIC_KEY ||
+  Keypair.fromSecret(DEPLOYER_SECRET).publicKey();
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
